@@ -1,7 +1,10 @@
+import json
+import requests
 import os
 import re
 import tweepy
 import pandas as pd
+import base64
 from datetime import datetime, timedelta
 import streamlit as st
 
@@ -44,25 +47,32 @@ def parse_jwave_tweets(tweets):
     return pd.DataFrame(data)
 
 @st.cache_data
-def create_youtube_search_link(song, artist):  # 追加: 関数定義
+def create_youtube_search_link(song, artist):
     youtube_query = f"{song} {artist} official video"
     youtube_query = youtube_query.replace(" ", "+")
     youtube_link = f"https://www.youtube.com/results?search_query={youtube_query}&force_navigate=1"
     return youtube_link
 
-@st.cache_data
-def search_youtube_video(song, artist):
-    youtube = build('youtube', 'v3', developerKey=youtubeAPIKey)
-    request = youtube.search().list(
-        part='id',
-        q=f'{song} {artist} MV',
-        type='video'
-    )
-    response = request.execute()
-    if 'items' in response:
-        return response['items']
-    else:
-        return None
+# iTunes Store API endpoint
+ITUNES_API = "https://itunes.apple.com/search"
+
+# Define function to search iTunes Store
+def itunes_search(q):
+    try:
+        params = {
+            "term": q.replace(" ", "+"),
+            "media": "music",
+            "entity": "song",
+            "limit": 1
+        }
+        response = requests.get(ITUNES_API, params=params)
+        data = json.loads(response.text)
+        if data.get("resultCount", 0) > 0:
+            return data["results"][0]["trackViewUrl"]
+        else:
+            return ""
+    except json.JSONDecodeError:
+        return ""
 
 st.set_page_config(layout="wide")
 st.sidebar.title("データ取得期間の指定")
@@ -89,9 +99,24 @@ if st.sidebar.button("データ取得"):
             song_artist = song_count.index[i]
             count = song_count[song_artist]
             song, artist = song_artist.split(" - ")
-            # 以下変更: search_youtube_video を使用せず、create_youtube_search_link を使用
-            url = create_youtube_search_link(song, artist)
-            st.write(f"{i+1}. [{song}]({url}) - {artist} ({count}回再生)")
+
+            itunes_link = itunes_search(song + " " + artist)
+            youtube_link = create_youtube_search_link(song, artist)
+            spotify_query = song + " " + artist
+            spotify_query = spotify_query.replace(" ", "+")
+            spotify_link = f"https://open.spotify.com/search/{spotify_query}"
+
+            st.write(f"{i+1}. {song} - {artist} ({count}回再生)")
+
+            if itunes_link:
+                itunes_png = base64.b64encode(open('its.png', 'rb').read()).decode('utf-8')
+                st.write(f'<a href="{itunes_link}" target="_blank"><img src="data:image/png;base64,{itunes_png}" width="20" height="20"></a>', unsafe_allow_html=True)
+            if youtube_link:
+                youtube_png = base64.b64encode(open('youtube.png', 'rb').read()).decode('utf-8')
+                st.write(f'<a href="{youtube_link}" target="_blank"><img src="data:image/png;base64,{youtube_png}" width="20" height="20"></a>', unsafe_allow_html=True)
+            if spotify_link:
+                spotify_png = base64.b64encode(open('spotify.png', 'rb').read()).decode('utf-8')
+                st.write(f'<a href="{spotify_link}" target="_blank"><img src="data:image/png;base64,{spotify_png}" width="20" height="20"></a>', unsafe_allow_html=True)
 
         df_artist_rank = pd.DataFrame({'Rank': song_rank, 'Artist': df['artist'].value_counts().head(30).index, 'Count': df['artist'].value_counts().head(30).values})
         st.subheader("アーティストオンエア数ランキング")
